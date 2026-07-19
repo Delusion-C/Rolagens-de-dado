@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Dice Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+
+  #stage {
+    position: fixed;
+    bottom: 60px; left: 60px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  #stage.visible { opacity: 1; transform: translateY(0); }
+
+  /* ---------- Card principal (fundo + moldura ornamentada) ---------- */
+  #card {
+    --accent-name: #A855F7; /* cor da moldura/barra — vem de !set namecolor */
+    --accent-dice: #A855F7; /* cor do dado/labels — vem de !set dicecolor */
+    position: relative;
+    background: linear-gradient(165deg, #140c27 0%, #060609 100%);
+    border: 1px solid var(--accent-name);
+    border-radius: 10px;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.55);
+    padding: 20px 34px 24px 38px;
+    contain: layout; /* isola reflow sem recortar o losango que passa da borda */
+  }
+
+  /* Losango ornamental centralizado sobre a barra, na altura do nome,
+     com brilho suave na cor do nome */
+  #diamond-ornament {
+    position: absolute;
+    left: -9px; top: 30px;
+    width: 18px; height: 18px;
+    background: var(--accent-name);
+    transform: rotate(45deg);
+    box-shadow: 0 0 6px 1px var(--accent-name);
+  }
+
+  /* Pontinhos decorativos no canto superior direito */
+  #corner-dots {
+    position: absolute;
+    top: 10px; right: 16px;
+    display: flex;
+    gap: 4px;
+  }
+  #corner-dots span {
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--accent-name);
+  }
+  #corner-dots span:nth-child(1) { opacity: 0.3; }
+  #corner-dots span:nth-child(2) { opacity: 0.5; }
+  #corner-dots span:nth-child(3) { opacity: 0.75; }
+  #corner-dots span:nth-child(4) { opacity: 1; }
+
+  #card-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  /* ---------- Linha superior: nome + soma (badge externo) ---------- */
+  #top-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  #char-name {
+    font-family: 'Cinzel', 'Times New Roman', serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: #F1EDE4;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  #page-indicator {
+    font-size: 14px;
+    font-weight: 600;
+    color: #8A8D98;
+    white-space: nowrap;
+  }
+
+  /* Soma total da rolagem — badge ao lado do nome. display:none quando
+     não há soma, não reserva espaço nenhum no layout. */
+  #sum-badge {
+    display: none;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 21px;
+    font-weight: 800;
+    color: #F1EDE4;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  #sum-badge.visible { display: flex; }
+  #sum-badge .sum-symbol { font-size: 15px; opacity: 0.9; color: var(--accent-dice); }
+
+  /* ---------- Corpo ---------- */
+  #dice-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    contain: layout;
+  }
+
+  .die-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 68px;
+    contain: layout;
+  }
+
+  .die-wrap {
+    position: relative;
+    width: 68px; height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .die-shape {
+    width: 100%; height: 100%;
+    transition: filter 0.2s ease;
+  }
+
+  /* Animação de giro — NÃO roda o triângulo (d4/d10) para evitar número sumir */
+  .die-shape.rolling { animation: dieSpin 0.6s linear infinite; }
+  .die-shape.rolling.no-spin { animation: diePulse 0.4s ease-in-out infinite; }
+
+  @keyframes dieSpin {
+    0%   { transform: rotate(0deg) scale(1); }
+    50%  { transform: rotate(180deg) scale(0.92); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  /* Pulso suave para triângulos — não gira, só pulsa */
+  @keyframes diePulse {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(0.9); }
+    100% { transform: scale(1); }
+  }
+
+  /* ---------- Crítico ---------- */
+  .die-wrap.crit-success { animation: critGlowSuccess 0.9s ease-out; }
+  .die-wrap.crit-success .die-shape {
+    filter: drop-shadow(0 0 16px rgba(92,214,138,0.75));
+  }
+  @keyframes critGlowSuccess {
+    0%   { transform: scale(1); }
+    30%  { transform: scale(1.35); }
+    55%  { transform: scale(0.95); }
+    75%  { transform: scale(1.12); }
+    100% { transform: scale(1); }
+  }
+
+  /* ---------- Falha crítica ---------- */
+  .die-wrap.crit-fail { animation: critShakeFail 0.5s ease-in-out; }
+  .die-wrap.crit-fail .die-shape {
+    filter: drop-shadow(0 0 14px rgba(255,59,59,0.65));
+  }
+  @keyframes critShakeFail {
+    0%   { transform: translateX(0); }
+    20%  { transform: translateX(-6px) rotate(-4deg); }
+    40%  { transform: translateX(6px) rotate(4deg); }
+    60%  { transform: translateX(-4px) rotate(-2deg); }
+    80%  { transform: translateX(4px) rotate(2deg); }
+    100% { transform: translateX(0); }
+  }
+
+  /* ---------- Número dentro do dado ---------- */
+  .die-value {
+    position: absolute;
+    font-size: 23px;
+    font-weight: 800;
+    color: #14151A;
+    font-variant-numeric: tabular-nums;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+    text-align: center;
+    width: 100%;
+    pointer-events: none;
+  }
+
+  /* Para triângulos (d4/d10) o número precisa ficar um pouco mais baixo */
+  .die-value.triangle-offset {
+    top: 60%;
+  }
+
+  /* ---------- Labels abaixo do dado ---------- */
+  /* "D20" — cor de acento (mesma do contorno do dado) */
+  .die-sides-label {
+    font-size: 11px; color: var(--accent-dice);
+    font-weight: 700; letter-spacing: 1.5px;
+  }
+  .die-sides-label.crit-success { color: #5CD68A; font-weight: 800; }
+  .die-sides-label.crit-fail    { color: #FF3B3B; font-weight: 800; }
+
+  /* "+5" — bônus, mesma cor de acento do dado. Altura FIXA pra manter
+     o alinhamento entre dados com e sem bônus na mesma fileira. */
+  .die-bonus-label {
+    display: block;
+    height: 13px;
+    line-height: 13px;
+    font-size: 11px; color: var(--accent-dice);
+    opacity: 0.85;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+  }
+
+  /* Linha pontilhada entre tipo/bônus e o resultado final */
+  .die-divider {
+    width: 24px;
+    height: 0;
+    border-bottom: 1px dotted var(--accent-dice);
+    opacity: 0.6;
+    margin: 2px 0;
+  }
+
+  .die-final {
+    font-size: 24px; font-weight: 800;
+    color: #F5F3EE;
+    font-variant-numeric: tabular-nums;
+  }
+  .die-final.crit-success { color: #5CD68A; text-shadow: 0 0 12px rgba(92,214,138,0.7); }
+  .die-final.crit-fail    { color: #FF3B3B; text-shadow: 0 0 10px rgba(255,59,59,0.6); }
+
+  .die-crit-tag {
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.5px; text-transform: uppercase;
+    height: 14px; opacity: 0;
+  }
+  .die-crit-tag.crit-success { color: #5CD68A; opacity: 1; animation: critTagPop 0.4s ease-out; }
+  .die-crit-tag.crit-fail    { color: #FF3B3B; opacity: 1; animation: critTagPop 0.4s ease-out; }
+
+  @keyframes critTagPop {
+    0%   { transform: translateY(-4px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+
+  /* ---------- Partículas ---------- */
+  .particle {
+    position: absolute;
+    pointer-events: none;
+    top: 50%; left: 50%;
+    width: auto; height: auto;
+  }
+  @keyframes particleSuccess {
+    0%   { opacity: 1; transform: translate(-50%,-50%) translate(0,0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(0.2); }
+  }
+  @keyframes particleFail {
+    0%   { opacity: 1; transform: translate(-50%,-50%) translate(0,0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(0.2); }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="card">
+    <div id="diamond-ornament"></div>
+    <div id="corner-dots"><span></span><span></span><span></span><span></span></div>
+    <div id="card-inner">
+      <div id="top-row">
+        <span id="char-name">—</span>
+        <span id="page-indicator"></span>
+        <div id="sum-badge"><span class="sum-symbol">Σ</span><span id="sum-value"></span></div>
+      </div>
+      <div id="dice-row"></div>
+    </div>
+  </div>
+</div>
+
+<audio id="roll-sound" preload="auto"></audio>
+
+<script>
+  // ---------------- CONFIGURAÇÃO ----------------
+  // Enquanto o bot roda no seu PC, deixe como está (ws://localhost:8765).
+  // Quando hospedar o bot (ex: Railway), troque pela URL pública que eles
+  // derem, sempre com "wss://" (o "s" extra é obrigatório, não "ws://"),
+  // por exemplo: const WS_URL = 'wss://seu-projeto.up.railway.app';
+  //
+  // Esse mesmo domínio também serve este arquivo por URL — depois de
+  // hospedar, aponte a fonte de Navegador do OBS pra
+  // https://seu-projeto.up.railway.app/overlay.html (em vez de "Local file")
+  const WS_URL            = 'ws://localhost:8765';
+  const SECONDS_PER_DIE   = 0.5;    // 0.5s por dado
+  const MIN_DISPLAY_MS    = 1500;   // mínimo 1.5s
+  const GAP_BETWEEN_MS    = 300;    // 0.3s de respiro entre rolagens (diferencia nomes)
+  const SOUND_ENABLED     = false;
+
+  // Dados triangulares: não giram durante a animação (evita número sumir)
+  const TRIANGLE_SIDES = new Set([4, 10]);
+
+  // ---------------- ELEMENTOS ----------------
+  const stage          = document.getElementById('stage');
+  const cardEl         = document.getElementById('card');
+  const charNameEl     = document.getElementById('char-name');
+  const pageIndicatorEl= document.getElementById('page-indicator');
+  const diceRowEl      = document.getElementById('dice-row');
+  const sumBadgeEl     = document.getElementById('sum-badge');
+  const sumValueEl     = document.getElementById('sum-value');
+  const soundEl        = document.getElementById('roll-sound');
+
+  // ---------------- FILA ----------------
+  const queue = [];
+  let isPlaying = false;
+
+  function enqueueRoll(data) { queue.push(data); processQueue(); }
+
+  function processQueue() {
+    if (isPlaying || queue.length === 0) return;
+    isPlaying = true;
+    const data = queue.shift();
+    playRollSequence(data).then(() => {
+      isPlaying = false;
+      setTimeout(processQueue, GAP_BETWEEN_MS);
+    });
+  }
+
+  async function playRollSequence(data) {
+    const totalPages = data.pages.length;
+    const nameColor = data.nameColor || '#A855F7';
+    const diceColor = data.diceColor || '#A855F7';
+
+    // Cores vêm de !set namecolor / !set dicecolor — aplicadas via CSS
+    // variables no card inteiro (moldura, barra lateral, labels dos dados)
+    cardEl.style.setProperty('--accent-name', nameColor);
+    cardEl.style.setProperty('--accent-dice', diceColor);
+
+    for (let i = 0; i < totalPages; i++) {
+      const pageLabel = totalPages > 1 ? `(${i+1}/${totalPages})` : '';
+      await playPage(data.character, data.pages[i], pageLabel, diceColor);
+    }
+    stage.classList.remove('visible');
+  }
+
+  function playPage(character, page, pageLabel, diceColor) {
+    return new Promise((resolve) => {
+      charNameEl.textContent  = character;
+      pageIndicatorEl.textContent = pageLabel;
+      stage.classList.add('visible');
+
+      diceRowEl.innerHTML = '';
+      sumBadgeEl.classList.remove('visible');
+      sumValueEl.textContent = '';
+
+      const dieEls = page.dice.map(die => createDieBlock(die, diceColor));
+      dieEls.forEach(el => diceRowEl.appendChild(el.wrapEl));
+
+      // Se esta página tem soma total (5d20, 1d8+1d6, 5#d20, 3d12+2d6+2...),
+      // o bot já decidiu (soma ativada e não é só d20) — aqui só exibimos
+      const sumDie = page.dice.find(d => d.sum_total != null);
+
+      if (SOUND_ENABLED && soundEl.src) { soundEl.currentTime = 0; soundEl.play().catch(()=>{}); }
+
+      let ticks = 0;
+      const maxTicks = 7; // poucas atualizações de DOM, ~600ms de "rolagem"
+      const tickInterval = setInterval(() => {
+        ticks++;
+        dieEls.forEach(el => {
+          const rnd = el.sides
+            ? Math.floor(Math.random() * el.sides) + 1
+            : Math.floor(Math.random() * 20) + 1;
+          el.valueEl.textContent = rnd;
+        });
+
+        if (ticks >= maxTicks) {
+          clearInterval(tickInterval);
+          const hasCrit = dieEls.map(el => revealDie(el)).some(Boolean);
+
+          if (sumDie) {
+            sumValueEl.textContent = sumDie.sum_total;
+            sumBadgeEl.classList.add('visible');
+          }
+
+          const displayMs = Math.max(MIN_DISPLAY_MS, page.dice.length * SECONDS_PER_DIE * 1000)
+            + (hasCrit ? 1000 : 0);
+          setTimeout(resolve, displayMs);
+        }
+      }, 85);
+    });
+  }
+
+  // ---------------- CRIAR BLOCO DE DADO ----------------
+  function createDieBlock(die, diceColor) {
+    const wrapEl = document.createElement('div');
+    wrapEl.className = 'die-block';
+
+    const dieWrap = document.createElement('div');
+    dieWrap.className = 'die-wrap';
+
+    const shape = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    shape.setAttribute('viewBox', '0 0 100 100');
+    shape.classList.add('die-shape', 'rolling');
+    if (TRIANGLE_SIDES.has(die.sides)) shape.classList.add('no-spin');
+    shape.innerHTML = getDieShapeSvg(die.sides, diceColor);
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'die-value';
+    if (TRIANGLE_SIDES.has(die.sides)) valueEl.classList.add('triangle-offset');
+    valueEl.textContent = '–';
+
+    dieWrap.appendChild(shape);
+    dieWrap.appendChild(valueEl);
+
+    const sidesLabel = document.createElement('span');
+    sidesLabel.className = 'die-sides-label';
+    sidesLabel.textContent = die.sides ? `D${die.sides}` : '';
+
+    const bonusLabel = document.createElement('span');
+    bonusLabel.className = 'die-bonus-label';
+    bonusLabel.textContent = (die.bonus && die.bonus !== 0)
+      ? (die.bonus > 0 ? `+${die.bonus}` : `${die.bonus}`)
+      : '\u00A0';
+
+    const divider = document.createElement('span');
+    divider.className = 'die-divider';
+
+    const finalEl = document.createElement('span');
+    finalEl.className = 'die-final';
+    finalEl.textContent = '–';
+
+    const critTag = document.createElement('span');
+    critTag.className = 'die-crit-tag';
+
+    wrapEl.appendChild(dieWrap);
+    wrapEl.appendChild(sidesLabel);
+    wrapEl.appendChild(bonusLabel);
+    wrapEl.appendChild(divider);
+    wrapEl.appendChild(finalEl);
+    wrapEl.appendChild(critTag);
+
+    return { wrapEl, dieWrap, shape, valueEl, finalEl, sidesLabel, critTag, sides: die.sides, die };
+  }
+
+  // ---------------- FORMAS SVG ----------------
+  const FILL = '#F5F3EE';
+  const SW   = '3';
+
+  function getDieShapeSvg(sides, strokeColor) {
+    const S = strokeColor || '#A855F7';
+    switch (sides) {
+      case 4:
+        // d4: triângulo — número fica na metade inferior (triangle-offset)
+        return `<polygon points="50,8 95,90 5,90" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+      case 6:
+        return `<rect x="14" y="14" width="72" height="72" rx="6" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+      case 8:
+        return `<polygon points="50,5 95,50 50,95 5,50" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+      case 10:
+      case 100:
+        // d10 também vira triângulo (mais limpo, sem girar)
+        return `<polygon points="50,8 95,90 5,90" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+      case 12:
+        return `<polygon points="50,5 93,37 76,90 24,90 7,37" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+      case 20:
+        return `<polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+      default:
+        return `<circle cx="50" cy="50" r="45" fill="${FILL}" stroke="${S}" stroke-width="${SW}"/>`;
+    }
+  }
+
+  // ---------------- REVELAR DADO ----------------
+  function revealDie(el) {
+    el.shape.classList.remove('rolling');
+    el.shape.classList.remove('no-spin');
+
+    const mainValue = el.die.values && el.die.values.length > 0
+      ? el.die.values[0]
+      : el.die.total;
+
+    el.valueEl.textContent = mainValue;
+    el.finalEl.textContent = el.die.total;
+
+    let isCrit = false;
+    if (el.sides === 20) {
+      if (mainValue === 20) {
+        el.finalEl.classList.add('crit-success');
+        el.sidesLabel.classList.add('crit-success');
+        el.dieWrap.classList.add('crit-success');
+        el.critTag.classList.add('crit-success');
+        el.critTag.textContent = '★ Crítico';
+        spawnParticles(el.dieWrap, 'success');
+        isCrit = true;
+      } else if (mainValue === 1) {
+        el.finalEl.classList.add('crit-fail');
+        el.sidesLabel.classList.add('crit-fail');
+        el.dieWrap.classList.add('crit-fail');
+        el.critTag.classList.add('crit-fail');
+        el.critTag.textContent = '✕ Falha';
+        spawnParticles(el.dieWrap, 'fail');
+        isCrit = true;
+      }
+    }
+    return isCrit;
+  }
+
+  // ---------------- PARTÍCULAS ----------------
+  function spawnParticles(dieWrap, type) {
+    const count  = type === 'success' ? 8 : 6;
+    const color  = type === 'success' ? '#F5C242' : '#FF3B3B';
+    const shapes = type === 'success' ? ['★','✦','·','◆','●'] : ['✕','·','●','▾'];
+
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('span');
+      p.className = 'particle';
+      const angle = type === 'success'
+        ? (i / count) * 360
+        : 90 + (i / count) * 180;
+      const rad  = (angle * Math.PI) / 180;
+      const dist = 38 + Math.random() * 28;
+      p.style.setProperty('--tx', `${Math.cos(rad) * dist}px`);
+      p.style.setProperty('--ty', `${Math.sin(rad) * dist}px`);
+      p.style.color    = color;
+      p.style.fontSize = `${7 + Math.random() * 6}px`;
+      p.style.lineHeight = '1';
+      p.style.animationName     = type === 'success' ? 'particleSuccess' : 'particleFail';
+      p.style.animationDuration = `${0.55 + Math.random() * 0.4}s`;
+      p.style.animationDelay    = `${Math.random() * 0.15}s`;
+      p.style.animationFillMode = 'forwards';
+      p.style.animationTimingFunction = 'ease-out';
+      p.textContent = shapes[i % shapes.length];
+      dieWrap.appendChild(p);
+      const ms = (parseFloat(p.style.animationDuration) + parseFloat(p.style.animationDelay)) * 1000;
+      setTimeout(() => p.remove(), ms + 50);
+    }
+  }
+
+  // ---------------- WEBSOCKET ----------------
+  function connect() {
+    const ws = new WebSocket(WS_URL);
+    ws.onopen    = () => console.log('Overlay conectado ao bot.');
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'roll') enqueueRoll(data);
+      } catch(err) { console.error(err); }
+    };
+    ws.onclose = () => setTimeout(connect, 3000);
+    ws.onerror = () => ws.close();
+  }
+  connect();
+</script>
+</body>
+</html>
