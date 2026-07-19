@@ -293,15 +293,15 @@
 
 <script>
   // ---------------- CONFIGURAÇÃO ----------------
-  // Enquanto o bot roda no seu PC, deixe como está (ws://localhost:8765).
-  // Quando hospedar o bot (ex: Railway), troque pela URL pública que eles
-  // derem, sempre com "wss://" (o "s" extra é obrigatório, não "ws://"),
-  // por exemplo: const WS_URL = 'wss://seu-projeto.up.railway.app';
-  //
-  // Esse mesmo domínio também serve este arquivo por URL — depois de
-  // hospedar, aponte a fonte de Navegador do OBS pra
-  // https://seu-projeto.up.railway.app/overlay.html (em vez de "Local file")
-  const WS_URL            = 'ws://localhost:8765';
+  // WS_URL agora é detectado automaticamente:
+  // - Se você abrir este arquivo direto do seu PC (file://) ou em localhost,
+  //   ele conecta em ws://localhost:8765 — não precisa mudar nada pra testar aí.
+  // - Se este arquivo estiver sendo servido por uma hospedagem (Railway etc,
+  //   ex: https://seu-projeto.up.railway.app/overlay.html), ele conecta
+  //   automaticamente em wss://<esse-mesmo-domínio> — também sem precisar editar nada.
+  const WS_URL = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'ws://localhost:8765'
+    : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
   const SECONDS_PER_DIE   = 0.5;    // 0.5s por dado
   const MIN_DISPLAY_MS    = 1500;   // mínimo 1.5s
   const GAP_BETWEEN_MS    = 300;    // 0.3s de respiro entre rolagens (diferencia nomes)
